@@ -21,8 +21,8 @@ const client = new MongoClient(uri, {
     }
 });
 
-
 let petCollection;
+let adoptionCollection; 
 
 async function run() {
     try {
@@ -30,7 +30,8 @@ async function run() {
 
         const db = client.db("petAdoption");
         petCollection = db.collection("pets"); 
-
+        adoptionCollection = db.collection("adoptions"); 
+        
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
@@ -41,7 +42,6 @@ async function run() {
 
 run().catch(console.dir);
 
-
 app.get('/pets', async (req, res) => {
     try {
         if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
@@ -51,7 +51,6 @@ app.get('/pets', async (req, res) => {
         res.status(500).send({ message: "Failed to fetch pets" });
     }
 });
-
 
 app.post('/pets', async (req, res) => {
     try {
@@ -65,14 +64,12 @@ app.post('/pets', async (req, res) => {
     }
 });
 
-
 app.get('/pets/:id', async (req, res) => {
     try {
         if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
         
         const id = req.params.id;
 
-        
         if (!ObjectId.isValid(id)) {
             return res.status(400).send({ message: "Invalid ID format provided" });
         }
@@ -80,7 +77,6 @@ app.get('/pets/:id', async (req, res) => {
         const query = { _id: new ObjectId(id) };
         const result = await petCollection.findOne(query);
 
-    
         if (!result) {
             return res.status(404).send({ message: "Pet not found" });
         }
@@ -92,6 +88,57 @@ app.get('/pets/:id', async (req, res) => {
     }
 });
 
+app.get('/adoptions', async (req, res) => {
+    try {
+        if (!adoptionCollection) {
+            return res.status(500).send({ message: "Database not initialized" });
+        }
+        const result = await adoptionCollection.find().toArray();
+        res.send(result);
+    } catch (error) {
+        console.error("Error fetching adoptions:", error);
+        res.status(500).send({ message: "Failed to fetch adoption data" });
+    }
+});
+
+app.post('/adoptions', async (req, res) => {
+    try {
+        if (!adoptionCollection || !petCollection) {
+            return res.status(500).send({ message: "Database collections not initialized" });
+        }
+
+        const adoptionRequest = req.body;
+        const { petId, userEmail, petName } = adoptionRequest;
+
+        if (!petId || !userEmail) {
+            return res.status(400).send({ message: "Missing required fields (petId or userEmail)" });
+        }
+
+        const existingRequest = await adoptionCollection.findOne({ 
+            petId: petId, 
+            userEmail: userEmail 
+        });
+
+        if (existingRequest) {
+            return res.status(400).send({ 
+                message: `You have already submitted an adoption request for ${petName || "this pet"}!` 
+            });
+        }
+
+        const result = await adoptionCollection.insertOne(adoptionRequest);
+
+        await petCollection.updateOne(
+            { _id: new ObjectId(petId) },
+            { $set: { status: "pending" } }
+        );
+
+        res.status(201).send(result);
+
+    } catch (error) {
+        console.error("Error inserting adoption request:", error);
+        res.status(500).send({ message: "Failed to insert adoption data" });
+    }
+});
 
 app.get('/', (req, res) => {
     res.send('On The PetAdopt server site!');
