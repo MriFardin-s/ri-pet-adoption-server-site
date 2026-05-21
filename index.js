@@ -271,6 +271,38 @@ app.patch('/adoptions/status/:id', async (req, res) => {
     }
 });
 
+app.patch("/adoptions/approve/:id", async (req, res) => {
+    const requestId = req.params.id;
+
+    try {
+
+        const request = await AdoptionRequestCollection.findOne({ _id: requestId });
+        if (!request) {
+            return res.status(404).send({ message: "Request not found" });
+        }
+
+        const petId = request.petId;
+
+
+        
+
+        await AdoptionRequestCollection.updateOne(
+            { _id: requestId },
+            { $set: { status: "approved" } }
+        );
+
+        await PetCollection.updateOne(
+            { _id: petId },
+            { $set: { status: "adopted" } }
+        );
+
+        res.send({ message: "Successfully adopted!" });
+
+    } catch (error) {
+        res.status(500).send({ message: "Failed to process approval" });
+    }
+});
+
 app.delete('/adoptions/:id', async (req, res) => {
     try {
         if (!adoptionCollection || !petCollection) {
