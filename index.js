@@ -207,11 +207,17 @@ app.post('/adoptions', async (req, res) => {
             return res.status(400).send({ message: "Missing required fields (petId or userEmail)" });
         }
 
-        const existingRequest = await adoptionCollection.findOne({
-            petId: petId,
-            userEmail: userEmail
-        });
+        const pet = await petCollection.findOne({ _id: new ObjectId(petId) });
+        if (!pet) {
+            return res.status(404).send({ message: "Pet not found" });
+        }
 
+        const ownerEmail = pet.addedBy?.email || pet.addedBy || pet.userEmail;
+        if (ownerEmail === userEmail) {
+            return res.status(400).send({ message: "Owners cannot request their own pets" });
+        }
+
+        const existingRequest = await adoptionCollection.findOne({ petId, userEmail });
         if (existingRequest) {
             return res.status(400).send({
                 message: `You have already submitted an adoption request for ${petName || "this pet"}!`
@@ -219,14 +225,12 @@ app.post('/adoptions', async (req, res) => {
         }
 
         const result = await adoptionCollection.insertOne(adoptionRequest);
-
         await petCollection.updateOne(
             { _id: new ObjectId(petId) },
             { $set: { status: "pending" } }
         );
 
         res.status(201).send(result);
-
     } catch (error) {
         console.error("Error inserting adoption request:", error);
         res.status(500).send({ message: "Failed to insert adoption data" });
