@@ -196,6 +196,21 @@ app.get('/adoptions/my-requests', async (req, res) => {
     }
 });
 
+app.get('/adoptions/user-status', async (req, res) => {
+    try {
+        if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
+        const { petId, email } = req.query;
+        if (!petId || !email) {
+            return res.status(400).send({ message: "Missing required query parameters" });
+        }
+        const result = await adoptionCollection.findOne({ petId, userEmail: email });
+        res.send({ status: result ? result.status : null });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to fetch user request status" });
+    }
+});
+
 app.get('/adoptions/pet-requests/:petId', async (req, res) => {
     try {
         if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
@@ -287,26 +302,21 @@ app.patch('/adoptions/status/:id', async (req, res) => {
 
 app.patch("/adoptions/approve/:id", async (req, res) => {
     const requestId = req.params.id;
-
     try {
-
-        const request = await AdoptionRequestCollection.findOne({ _id: requestId });
+        const request = await adoptionCollection.findOne({ _id: new ObjectId(requestId) });
         if (!request) {
             return res.status(404).send({ message: "Request not found" });
         }
 
         const petId = request.petId;
 
-
-        
-
-        await AdoptionRequestCollection.updateOne(
-            { _id: requestId },
+        await adoptionCollection.updateOne(
+            { _id: new ObjectId(requestId) },
             { $set: { status: "approved" } }
         );
 
-        await PetCollection.updateOne(
-            { _id: petId },
+        await petCollection.updateOne(
+            { _id: new ObjectId(petId) },
             { $set: { status: "adopted" } }
         );
 
