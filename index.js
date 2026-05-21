@@ -22,16 +22,16 @@ const client = new MongoClient(uri, {
 });
 
 let petCollection;
-let adoptionCollection; 
+let adoptionCollection;
 
 async function run() {
     try {
         await client.connect();
 
         const db = client.db("petAdoption");
-        petCollection = db.collection("pets"); 
-        adoptionCollection = db.collection("adoptions"); 
-        
+        petCollection = db.collection("pets");
+        adoptionCollection = db.collection("adoptions");
+
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
@@ -64,12 +64,37 @@ app.post('/pets', async (req, res) => {
     }
 });
 
+app.get('/pets/my-listings', async (req, res) => {
+    try {
+        if (!petCollection) return res.status(500).send({ message: "Database collection not initialized" });
+        
+        const email = req.query.email;
+        if (!email) {
+            return res.status(400).send({ message: "Missing email parameter" });
+        }
+        
+        const cleanEmail = email.trim();
+        const query = {
+            $or: [
+                { addedBy: cleanEmail },
+                { "addedBy.email": cleanEmail },
+                { userEmail: cleanEmail }
+            ]
+        };
+        
+        const result = await petCollection.find(query).toArray();
+        res.send(result);
+    } catch (error) {
+        console.error("Detailed server error in my-listings:", error);
+        res.status(500).send({ message: "Internal server error", error: error.message });
+    }
+});
+
 app.get('/pets/:id', async (req, res) => {
     try {
         if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
-        
-        const id = req.params.id;
 
+        const id = req.params.id;
         if (!ObjectId.isValid(id)) {
             return res.status(400).send({ message: "Invalid ID format provided" });
         }
@@ -88,16 +113,84 @@ app.get('/pets/:id', async (req, res) => {
     }
 });
 
+app.patch('/pets/:id', async (req, res) => {
+    try {
+        if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
+        
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID format" });
+        }
+
+        const updatedData = req.body;
+        delete updatedData._id;
+
+        const result = await petCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updatedData }
+        );
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Update failed" });
+    }
+});
+
+app.delete('/pets/:id', async (req, res) => {
+    try {
+        if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
+        
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID format" });
+        }
+
+        const result = await petCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Delete failed" });
+    }
+});
+
 app.get('/adoptions', async (req, res) => {
     try {
-        if (!adoptionCollection) {
-            return res.status(500).send({ message: "Database not initialized" });
-        }
+        if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
         const result = await adoptionCollection.find().toArray();
         res.send(result);
     } catch (error) {
         console.error("Error fetching adoptions:", error);
         res.status(500).send({ message: "Failed to fetch adoption data" });
+    }
+});
+
+app.get('/adoptions/my-requests', async (req, res) => {
+    try {
+        if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
+
+        const email = req.query.email;
+        if (!email) {
+            return res.status(400).send({ message: "Missing email query parameter" });
+        }
+
+        const query = { userEmail: email };
+        const result = await adoptionCollection.find(query).toArray();
+        res.send(result);
+    } catch (error) {
+        console.error("Error fetching user requests:", error);
+        res.status(500).send({ message: "Failed to fetch requests" });
+    }
+});
+
+app.get('/adoptions/pet-requests/:petId', async (req, res) => {
+    try {
+        if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
+        const petId = req.params.petId;
+        const result = await adoptionCollection.find({ petId }).toArray();
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to fetch requests" });
     }
 });
 
@@ -114,14 +207,14 @@ app.post('/adoptions', async (req, res) => {
             return res.status(400).send({ message: "Missing required fields (petId or userEmail)" });
         }
 
-        const existingRequest = await adoptionCollection.findOne({ 
-            petId: petId, 
-            userEmail: userEmail 
+        const existingRequest = await adoptionCollection.findOne({
+            petId: petId,
+            userEmail: userEmail
         });
 
         if (existingRequest) {
-            return res.status(400).send({ 
-                message: `You have already submitted an adoption request for ${petName || "this pet"}!` 
+            return res.status(400).send({
+                message: `You have already submitted an adoption request for ${petName || "this pet"}!`
             });
         }
 
@@ -137,6 +230,72 @@ app.post('/adoptions', async (req, res) => {
     } catch (error) {
         console.error("Error inserting adoption request:", error);
         res.status(500).send({ message: "Failed to insert adoption data" });
+    }
+});
+
+app.patch('/adoptions/status/:id', async (req, res) => {
+    try {
+        if (!adoptionCollection || !petCollection) return res.status(500).send({ message: "Database error" });
+        
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID format" });
+        }
+
+        const { status, petId } = req.body;
+
+        await adoptionCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status } }
+        );
+
+        if (status === "approved") {
+            await petCollection.updateOne(
+                { _id: new ObjectId(petId) },
+                { $set: { status: "adopted" } }
+            );
+            await adoptionCollection.updateMany(
+                { petId, _id: { $ne: new ObjectId(id) } },
+                { $set: { status: "rejected" } }
+            );
+        }
+
+        res.send({ message: `Request ${status} successfully` });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update status" });
+    }
+});
+
+app.delete('/adoptions/:id', async (req, res) => {
+    try {
+        if (!adoptionCollection || !petCollection) {
+            return res.status(500).send({ message: "Database collections not initialized" });
+        }
+
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID format" });
+        }
+
+        const adoptionRequest = await adoptionCollection.findOne({ _id: new ObjectId(id) });
+        if (!adoptionRequest) {
+            return res.status(404).send({ message: "Request not found" });
+        }
+
+        const { petId } = adoptionRequest;
+
+        await adoptionCollection.deleteOne({ _id: new ObjectId(id) });
+
+        await petCollection.updateOne(
+            { _id: new ObjectId(petId) },
+            { $set: { status: "available" } }
+        );
+
+        res.send({ message: "Adoption request cancelled successfully" });
+    } catch (error) {
+        console.error("Error deleting adoption request:", error);
+        res.status(500).send({ message: "Failed to cancel request" });
     }
 });
 
