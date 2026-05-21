@@ -45,7 +45,21 @@ run().catch(console.dir);
 app.get('/pets', async (req, res) => {
     try {
         if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
-        const result = await petCollection.find().toArray();
+
+        const { search, species } = req.query;
+
+        let query = {};
+
+        if (search) {
+            query.petName = { $regex: search, $options: "i" };
+        }
+
+        if (species) {
+            const speciesArray = species.split(",");
+            query.species = { $in: speciesArray };
+        }
+
+        const result = await petCollection.find(query).toArray();
         res.send(result);
     } catch (error) {
         res.status(500).send({ message: "Failed to fetch pets" });
