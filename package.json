@@ -11,10 +11,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@better-fetch/fetch": "^1.1.21",
+    "better-auth": "^1.6.11",
+    "cor": "^0.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jose-cjs": "^6.2.3",
+    "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.2.0"
   }
 }

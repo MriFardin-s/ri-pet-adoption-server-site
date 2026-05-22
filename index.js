@@ -1,15 +1,23 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
+const { createRemoteJWKSet } = require('jose-cjs');
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 9000;
 
-app.use(cors());
+app.use(cors({
+    origin: ['https://ri-pet-adoption-client-site.vercel.app'],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+app.options('*', cors());
+
 app.use(express.json());
 
 const uri = process.env.MONGO_URI;
@@ -22,37 +30,28 @@ const client = new MongoClient(uri, {
     }
 });
 
-let petCollection;
-let adoptionCollection;
-
 const JWKS = createRemoteJWKSet(
-    new URL("http://localhost:3000/api/auth/jwks")
-)
+    new URL(`${process.env.BETTER_AUTH_URL}/api/auth/jwks`)
+);
 
-const verifyToken = async (req, res, next) => {
-    const authHeader = req?.headers.authorization;
-    if (!authHeader) {
-        return res.status(401).json({ message: 'Unauthorized' });
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(403).send({ message: "Forbidden: No token provided" });
     }
-    const parts = authHeader.split(" ");
-    const token = parts.length === 2 ? parts[1] : null;
+    const token = authHeader.split(' ')[1];
 
-    if (!token) {
-        return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    try {
-        const { payload } = await jwtVerify(token, JWKS);
-        req.user = payload;
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ message: "Forbidden: Invalid token" });
+        }
+        req.user = decoded;
         next();
-    } catch (error) {
-        return res.status(403).json({ message: "Forbidden" });
-    }
+    });
 };
-
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
 
         const db = client.db("petAdoption");
         petCollection = db.collection("pets");
@@ -276,18 +275,17 @@ app.get('/adoptions', async (req, res) => {
 
 app.get('/adoptions/my-requests', verifyToken, async (req, res) => {
     try {
-        if (!adoptionCollection) return res.status(500).send({ message: "Database not initialized" });
-
-        const email = req.query.email;
-        if (!email) {
-            return res.status(400).send({ message: "Missing email query parameter" });
+        if (!adoptionCollection) {
+            return res.status(500).send({ message: "Database not initialized" });
         }
 
+        const email = req.user.email;
         const query = { userEmail: email };
         const result = await adoptionCollection.find(query).toArray();
+        
         res.send(result);
     } catch (error) {
-        console.error("Error fetching user requests:", error);
+        console.error("Internal Server Error:", error);
         res.status(500).send({ message: "Failed to fetch requests" });
     }
 });
