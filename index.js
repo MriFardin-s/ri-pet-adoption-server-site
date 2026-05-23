@@ -1,22 +1,28 @@
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const { createRemoteJWKSet } = require('jose-cjs');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 
 dotenv.config();
-
+const port = process.env.port || 9000
 const app = express();
 
 app.use(cors({
-    origin: ['https://ri-pet-adoption-client-site.vercel.app'],
+    origin: [
+        'https://ri-pet-adoption-client-site.vercel.app',
+        'http://localhost:3000'
+    ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-app.options('*', cors());
+// app.options('*', cors());
+// app.options(/.*/, cors());
 
 app.use(express.json());
 
@@ -30,24 +36,33 @@ const client = new MongoClient(uri, {
     }
 });
 
-const JWKS = createRemoteJWKSet(
-    new URL(`${process.env.BETTER_AUTH_URL}/api/auth/jwks`)
+
+
+// const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req?.headers.authorization;
+//   console.log(authHeader)
+  if (!authHeader) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+//   console.log(token)
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  try {
+    const JWKS = createRemoteJWKSet(
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
 );
-
-const verifyToken = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(403).send({ message: "Forbidden: No token provided" });
-    }
-    const token = authHeader.split(' ')[1];
-
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        if (err) {
-            return res.status(403).send({ message: "Forbidden: Invalid token" });
-        }
-        req.user = decoded;
-        next();
-    });
+    const { payload } = await jwtVerify(token, JWKS);
+     req.user = payload
+    next();
+  } catch (error) {
+    // console.log(error)
+    return res.status(403).json({ message: "Forbidden" });
+  }
 };
 async function run() {
     try {
@@ -69,7 +84,7 @@ run().catch(console.dir);
 
 app.get('/pets', async (req, res) => {
     try {
-        if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
+        // if (!petCollection) return res.status(500).send({ message: "Database not initialized" });
 
         const { search, species } = req.query;
 
@@ -275,15 +290,16 @@ app.get('/adoptions', async (req, res) => {
 
 app.get('/adoptions/my-requests', verifyToken, async (req, res) => {
     try {
-        if (!adoptionCollection) {
-            return res.status(500).send({ message: "Database not initialized" });
-        }
+        // if (!adoptionCollection) {
+        //     return res.status(500).send({ message: "Database not initialized" });
+        // }
 
         const email = req.user.email;
         const query = { userEmail: email };
         const result = await adoptionCollection.find(query).toArray();
+        // console.log(result)
         
-        res.send(result);
+        res.json(result);
     } catch (error) {
         console.error("Internal Server Error:", error);
         res.status(500).send({ message: "Failed to fetch requests" });
