@@ -292,7 +292,7 @@ app.get('/adoptions/my-requests', verifyToken, async (req, res) => {
     try {
         // if (!adoptionCollection) {
         //     return res.status(500).send({ message: "Database not initialized" });
-        // }
+        // on env issue }
 
         const email = req.user.email;
         const query = { userEmail: email };
